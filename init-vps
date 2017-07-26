@@ -1,0 +1,40 @@
+#!/bin/sh
+# Это хак
+# Для статей, которые я буду писать о настройке Debian: для sudo нужен работающий domain name resolving, т. е. нужно скопировать в chroot-систему /etc/hosts
+
+set -e
+
+[ $# != 1 ] && echo "Usage: ${0##*/} USER@HOST" >&2 && exit 1
+
+[ "${1%@*}" = "$1" ] && echo "${0##*/}: no @" >&2 && exit 1
+
+if ! tty      > /dev/null 2>&1; then
+	echo "stdin is not a terminal" >&2
+	exit 1
+fi
+
+if ! tty 0>&1 > /dev/null 2>&1; then
+	echo "stdout is not a terminal" >&2
+	exit 1
+fi
+
+if ! tty 0>&2 > /dev/null 2>&1; then
+	echo "stderr is not a terminal" >&2
+	exit 1
+fi
+
+export LC_ALL=C
+
+ssh-copy-id "$1"
+
+# Мы можем быть root'ом, а sudo может не быть. На Hetzner'е невозможно установить sudo без update по состоянию на 2016-02-06
+wget -O - https://github.com/safinaskar/tpm/raw/master/tpm | ssh "$1" '[ "$(id -u)" = 0 ] && bash -s bootstrap || sudo bash -s bootstrap'
+
+# Теперь PATH там уже правильный
+ssh -t "$1" '[ "$(id -u)" = 0 ] && tpm install prog:sudo:sudo'
+
+ssh -t "$1" 'sudo tpm install safinaskar/my-config-2'
+ssh -t "$1" 'sudo tpm install safinaskar/as-debian'
+ssh -t "$1" '. as-debian && case "$(asutils_debian_distro)" in jessie|trusty) sudo gen-sources -a && sudo apt-get update;; esac'
+ssh -t "$1" 'apt-get dist-upgrade -y -no-install-recommends dist-upgrade'
+ssh -t "$1" 'apt-get install -y --no-install-recommends ntp rsync' # rsync нужен для решения bootstrapping problem: нужно срочно переместить кучу данных с VPS, т. к. кончилось место
